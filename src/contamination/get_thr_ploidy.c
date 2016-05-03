@@ -576,7 +576,12 @@ void GetThresholds(int thr[],int depth_min, int depth_max, int avDP4, int stdDP4
       if ((avDP4-mode_depth) > bin_width){
           data[0]=depth_min;
           data[1]=mode_depth-sdmo;
+          if (data[1] <= 0){
           thrU=GetMax(data,2);
+          }
+          if (data[1] > 0){
+          thrU=GetMin(data,2);
+          }
 
           data[0]=depth_max;
           data[1]=avDP4+3*stdDP4;
@@ -588,7 +593,12 @@ void GetThresholds(int thr[],int depth_min, int depth_max, int avDP4, int stdDP4
        if ((avDP4-mode_depth) < - bin_width){
                 data[0]=depth_min;
                 data[1]=avDP4 - 2*stdDP4;
+                if (data[1] <= 0){
                 thrU=GetMax(data,2);
+                }
+                if (data[1] > 0){
+                thrU=GetMin(data,2);
+                }
 
                 data[0]=depth_max;
                 data[1]=mode_depth+sdmo;
@@ -601,8 +611,12 @@ void GetThresholds(int thr[],int depth_min, int depth_max, int avDP4, int stdDP4
          if ( (avDP4-mode_depth) >= - bin_width &&  (avDP4-mode_depth) <= bin_width  ){
                  data[0]=depth_min;
                  data[1]=avDP4 - 2*stdDP4;
+                 if (data[1] <= 0){
                  thrU=GetMax(data,2);
-
+                  }
+                 if (data[1] > 0){
+                 thrU=GetMin(data,2);
+                 }
                  data[0]=depth_max;
                  data[1]=avDP4 + 2*stdDP4;;
                  thrL=GetMin(data,2);
