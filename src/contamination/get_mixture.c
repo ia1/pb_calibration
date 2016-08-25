@@ -3,7 +3,9 @@
  *
 
   Last edited:
-  13 April- added Steven's corrections and outputs
+  24August- small sample correction for artificially inflated last AAF 10% bin (too high skc last)
+  // changed thr_lik in the into 0.3 (was 0.25) mixture = Decision(Lik, mix, 0.3);// !!!!
+  7 June 2016- added Steven's corrections and outputs
   April - if empty vcfq file; if small data in histo thr_tot=200 variants
   14 March  - three modes and likelihoods: low, middle , high
 
@@ -27,7 +29,7 @@
 
 // ******** predefined user constants,
 #define NPAR 4                // Number of arguments
-#define NTHR 9                // Number of fields 9 now (thr_low, thr_up, mu, std and ploidy (1=haploid 2=diploid))
+#define NTHR 9                // Number of fields (thr_low, thr_up, mu, std and ploidy (1=haploid 2=diploid))
 #define NRID 6                // Number of fields (pos,Depth,DP4) in extracted_vcf files
 #define MIN_COUNT_AFTERF 200  // Minimum variant count after filtering
 #define DEFAULT_DIST 11       // Default bin width for hist to compute skewness
@@ -37,14 +39,13 @@ void usage(int code); // usage
 int GetAf(int []); // computes AF percentage for a variant position
 float GetMu(int data[]);
 float GetStd(int data[]);
-void skewnesses(int data[], float sk[], float skc[], int st[], int stc[]);
+void skewnesses_ssc(int data[], float sk[], float skc[], int st[], int stc[]);
 void MixMode(int mix[], int st[], int data[], int dist);
 void MixModeComplement(int mixc[], int stc[], int data[], int dist);
 int GetMaxPeakInterval(int data[], int n1, int n2); // max peak from the interval
 void Likely(float Lik[], float sk[],float skc[], int mixc[],float avDP4);
 int GetMaxIndex (float data[], int i1, int i2);
 int Decision(float Lik[], int mix[], float thr_lik);
-
 
 ////////////////////////////////////////////////////
 // main
@@ -64,6 +65,9 @@ int main(int argc, char *argv[]) {
     int muD, stdD;
     int thr_low, thr_up, ploid;
     int depth_min, depth_max, mode_depth ,sdmo;
+
+    //prams
+    float thr_lik;//how low sh be likelyhood to ignore it; was 0.25, now 0.3
 
     // to read vcfa/vcfq
     static const int line_size = 8192; // maximum line size
@@ -88,7 +92,7 @@ int main(int argc, char *argv[]) {
     //---------------results to compute:
     int count_beforeF; // variant count before filtering
     int count_afterF; // variant count after filtering
-    int mixture;
+    int mixture; // mixture
 
     //---------------------------arrays
     int histAF[101]; // to store mafs percentages
@@ -96,6 +100,11 @@ int main(int argc, char *argv[]) {
     float sk[3], skc[3]; // three skewnesses for mode0,1,2
     int mix[3], mixc[3]; // mixtures three modes and their complements
     float Lik[3]; // likelihood or confidences three modes
+
+
+
+    // param values
+    thr_lik=0.3;
 
     static struct option long_options[] =
         { {"verbose", 0, 0, 'v'},
@@ -154,10 +163,9 @@ int main(int argc, char *argv[]) {
         histAF[i] = 0;
     }
 
-    // read thr file - 9 fields: theshold low, threshold up, mean death, stddev depth and ploidy
-    //"%d %d %d %d %d %d %d %d %d\n", thr_low, thr_up, depth_min, depth_max, avDP4, stdDP4,mode_depth ,sdmo, ploid)
+    // read thr file - 9 fields theshold low, threshold up, min/max/mean/stddev depth, mode_depth, sdmo and ploidy
     while (fgets(line, line_size, thrFile)) {
-        int k = sscanf(line, "%d %d %d %d %d %d %d %d %d", &thr_low, &thr_up, &depth_min, &depth_max,&muD, &stdD,&mode_depth ,&sdmo, &ploid);
+        int k = sscanf(line, "%d %d %d %d %d %d %d %d %d", &thr_low, &thr_up, &depth_min, &depth_max, &muD, &stdD, &mode_depth, &sdmo, &ploid);
         if (k != NTHR) {
             // number of fields read not correct
             fprintf (stderr, "corrupt threshold file %s\n", line);
@@ -178,13 +186,13 @@ int main(int argc, char *argv[]) {
         int k = sscanf(line, "%d,%d,%d,%d,%d,%d", &pos, &D, &DP4[0], &DP4[1], &DP4[2], &DP4[3]);
         if (k != NRID) {
             // number of fields read not correct
-            fprintf(stderr, "skipping malformed VCF line %s\n", line);
+            fprintf(stderr, "skipping malformed VCF line %s", line);
             continue;
         }
         count_beforeF++;
 
         // filter for DP4 separately for ref and alternative alleles and abnormaly large Depth
-        if( DP4[0] > thr_low && DP4[1]>thr_low && DP4[2]> thr_low && DP4[3]> thr_low && D < thr_up ) {
+        if( DP4[0] > thr_low && DP4[1] > thr_low && DP4[2] > thr_low && DP4[3] > thr_low && D < thr_up ) {
             int AF;
             float sDP4;
 
@@ -219,6 +227,7 @@ int main(int argc, char *argv[]) {
 
     // initialise variables
     avDP4 = 0; // average depth
+    mixture = 0; // mixture
 
     // do we have enough data ?
     if (count_afterF < MIN_COUNT_AFTERF) {
@@ -232,13 +241,13 @@ int main(int argc, char *argv[]) {
         fprintf(stderr, "coverage after filtering = %d\n",  avDP4);
 
         // calculate skewness
-        skewnesses(histAF, sk, skc, st, stc);
+        skewnesses_ssc(histAF, sk, skc, st, stc);
 
         // mixtures per mode; confidences per mixture
         MixMode(mix, st, histAF, dist);
         MixModeComplement(mixc, stc, histAF, dist);
         Likely(Lik, sk, skc, mixc, avDP4);
-        mixture=Decision(Lik, mix, 0.25);
+        mixture = Decision(Lik, mix, thr_lik);// !!!!
         fprintf(stderr, "final decided mixture = %d\n",  mixture);
 
         if (verbose) {
@@ -276,7 +285,7 @@ int main(int argc, char *argv[]) {
         fprintf(stderr, "error writing mixture_file: %s\n", strerror(errno));
         exit(EXIT_FAILURE);
     }
-    if (fprintf(mixFile,"AvActDepth=%d\nmin_depth=%d\nmax_depth=%d\final mix=%d\n", avDP4, thr_low, thr_up, mixture) <= 0 ) {
+    if (fprintf(mixFile,"AvActDepth=%d\nmin_depth=%d\nmax_depth=%d\nfinal mix=%d\n", avDP4, thr_low, thr_up, mixture) <= 0 ) {
         fprintf(stderr, "error writing mixture_file: %s\n", strerror(errno));
         exit(EXIT_FAILURE);
     }
@@ -510,7 +519,7 @@ int GetMaxPeakInterval(int data[], int n1, int n2)
 
 ////////////////////////////////////////////////////
 // confidences modes 0,1,2
-// we assume that the larger is skewness of a mode (pronounced humph), the more likely mixture belongs there
+// we assume that the larger is skewness of a mode (pronounced hump), the more likely mixture belongs there
 ////////////////////////////////////////////////////
 void Likely(float Lik[], float sk[],float skc[], int mixc[],float avDP4)
 {
@@ -528,10 +537,11 @@ void Likely(float Lik[], float sk[],float skc[], int mixc[],float avDP4)
     }
 
     // adjusted for majority of reads in this range 16-26: here is 0.8 (0.2 as much  than for mode0 5-15)
-    Lik[1]=(1-1/avDP4) * 0.8*(sk[1]+skc[1]+skc[1])/3;
-      // adjusted for majority of reads in this range 27-47: here is twice as much
+    Lik[1]=(1-1/avDP4) * 0.8 * (sk[1]+skc[1]+skc[1]) / 3;
+    // adjusted for majority of reads in this range 27-47: here is twice as much
     Lik[2] = (1-1/avDP4) * (l+lc+lp) / 6;
 }
+
 ////////////////////////////////////////////////////
 // find position of the max value in a sub-interval (i1<=i<=i2) of an array
 ////////////////////////////////////////////////////
@@ -557,29 +567,97 @@ int GetMaxIndex (float data[], int i1, int i2)
 // we assume that the larger is skewness of a mode (pronounced humph), the more likely mixture belongs there
 ////////////////////////////////////////////////////
 
- int Decision(float Lik[], int mix[], float thr_lik)
- {
-     int nm,mixx;
+int Decision(float Lik[], int mix[], float thr_lik)
+{
+    int nm,mixx;
 
-
- // if each Lik[i] <=thr_lik, mixture=0
-    if (Lik[0]<=thr_lik && Lik[1]<=thr_lik && Lik[2]<=thr_lik){
-        mixx=0;
+    // if each Lik[i] <=thr_lik, mixture=0
+    if (Lik[0] <= thr_lik && Lik[1] <= thr_lik && Lik[2] <= thr_lik){
+        mixx = 0;
     }
     else {
-        nm=GetMaxIndex(Lik, 0,3);
-        mixx=mix[nm];
-
+        nm = GetMaxIndex(Lik, 0,3);
+        mixx = mix[nm];
     }
+
     return mixx;
 }
 
+////////////////////////////////////////////////////
+// skewnesses for three modes, with ssc for last-forst mode skc[2]
+////////////////////////////////////////////////////
+void skewnesses_ssc (int data[], float sk[], float skc[], int st[], int stc[])
+{
+    int i, j, d, n1, n2;
+    float s[4];
+    float sc[4];
 
+    int scp[4];
+    int perc_aaf;// for ssc
+    int sum;
+    float thr_skc;
 
+    perc_aaf=3;
+    thr_skc=0.5;
 
+    d = DEFAULT_DIST;
 
+    //1.  starts, starts complementary
+    st[0] = 5;
+    stc[0] = 51;
+    for (i=1;i<4;i++) {
+        st[i] = st[i-1]+d;
+        stc[i] = stc[i-1]+d;
+    }
 
+    //2. sums between starts: 3 sums and 3 sums complementary
+    for(i=0;i<4;i++) {
+        n1 = st[i];
+        n2 = stc[i];
+        s[i] = 0;
+        sc[i] = 0;
+        for (j=n1;j<n1+d;j++) {
+            s[i] = s[i] + data[j];
+        }
+        for (j=n2;j<n2+d;j++) {
+            sc[i] = sc[i] + data[j];
+        }
+    }
 
+    //3.     // compute skewnesses
+    for (i=0;i<3;i++) {
+        if (s[i+1]>0) {
+            sk[i]=s[i]/s[i+1];
+        }
+        if (sc[i]>0) {
+            skc[i]=sc[i+1]/sc[i];
+        }
+    }
+
+    // small sample correction conditions
+    // compute percentage of s and sc:sp scp
+
+        // compute sum of AAF
+        sum=s[0]+sc[0];
+        for (i=1;i<3;i++) {
+		sum += s[i]+sc[i];
+	    }
+	    //percentage of sc
+	    for (i=0;i<3;i++) {
+			 scp[i]=0;
+		 }
+
+	    if (sum >0) {
+        for (i=0;i<3;i++) {
+			scp[i]=ceil(100*sc[i]/sum);
+		}
+	    }
+
+        // if scp[2]< 3 && scp[3]< 3 && skc[2]>0.5   make skc[2]=0.4
+        if (scp[2] < perc_aaf && scp[3] < perc_aaf && skc[2] > thr_skc ) {
+			skc[2]=0.4;
+		}
+}
 
 
 
