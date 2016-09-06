@@ -89,8 +89,8 @@ int main (int argc, char *argv[]) {
 
     // arrays
     int histAF[101]; // maf percentages
-    int bins_depth[101];
-    int hist_depth[101];
+    int bins_depth[201];
+    int hist_depth[201];
 
     // stats
     float sumDP4, sumDP4_2; // sum of depths and sum of square depths used for mu/std calculation
@@ -98,9 +98,9 @@ int main (int argc, char *argv[]) {
     // to compute for outputs, including stats
     int ploid; // ploidy
     int avDP4, stdDP4; // mean and std of depth after filtering
-    int depth_max,depth_min;
-    int thr_low,thr_up;
-     int ind_mode, height, mode_depth, sdmo;
+    int depth_max, depth_min;
+    int thr_low, thr_up;
+    int ind_mode, height, mode_depth, sdmo;
 
     int i; // array index
 
@@ -161,8 +161,8 @@ int main (int argc, char *argv[]) {
     fprintf(stderr, "get_thr_ploidy\n");
 
     // initialise depth histograms
-    bin_width = 10;
-    for (i=0;i<101;i++) {
+    bin_width = 5;
+    for (i=0;i<201;i++) {
         hist_depth[i] = 0;
         bins_depth[i] = 1 + i * bin_width;
     }
@@ -184,17 +184,17 @@ int main (int argc, char *argv[]) {
     depth_max = 0;
     depth_min = 1000;
     // int ind_mode, height, mode_depth, sdmo;
-    height=0;
-    mode_depth=0;
-    sdmo=0;
-    ind_mode=0;
+    height = 0;
+    mode_depth = 0;
+    sdmo = 0;
+    ind_mode = 0;
 
     // read vcfq file - 6 fields position, depth and 4xdepths (ref/forward, ref/reverse, alt/forward and alt/reverse)
     while (fgets(line, line_size, extract_vcfFile)) {
         int k = sscanf(line, "%d,%d,%d,%d,%d,%d", &pos, &D, &DP4[0], &DP4[1], &DP4[2], &DP4[3]);
         if (k != NRID) {
             // number of fields read not correct
-            fprintf(stderr, "skipping malformed VCF line %s\n", line);
+            fprintf(stderr, "skipping malformed VCF line %s", line);
         }
         count_beforeF++;
 
@@ -217,7 +217,7 @@ int main (int argc, char *argv[]) {
                 depth_min = sDP4;
 
             // update depth histo
-            for (i=0;i<100;i++) {
+            for (i=0;i<200;i++) {
                 if ((sDP4 >= bins_depth[i]) && (sDP4 < bins_depth[i+1])) {
                     hist_depth[i]++;
                     break;
@@ -239,8 +239,8 @@ int main (int argc, char *argv[]) {
     fprintf(stderr, "min depth after filtering 1 1= %d\n", depth_min);
     fprintf(stderr, "max depth after filtering 1 1= %d\n", depth_max);
 
-    // write distribution file
-    for (i=0;i<100;i++) {
+    // write depth distribution file
+    for (i=0;i<200;i++) {
         if (fprintf(depth_distrFile, "%d %d\n", bins_depth[i], hist_depth[i]) <= 0) {
             fprintf(stderr, "error writing depth_distribution_file: %s\n", strerror(errno));
             exit(EXIT_FAILURE);
@@ -254,15 +254,14 @@ int main (int argc, char *argv[]) {
     avDP4 = 0; // mean depth
     stdDP4 = 0; // stddev depth
     ploid = 1; // ploidy
-    thr_low = 250; // low threshold
-    thr_up = 0; // upper threshold
+    thr_low = 0; // low threshold
+    thr_up = 250; // upper threshold
 
     // do we have enough data ?
     if (count_afterF < MIN_COUNT_AFTERF) {
       fprintf(stderr, "Not enough variants after filtering, count_afterF < %d\n", MIN_COUNT_AFTERF);
 
     } else {
-        //int ind_mode, height, mode_depth, sdmo;
         float perc_left;
         int ind, ind50;
 
