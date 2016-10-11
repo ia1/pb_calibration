@@ -3,6 +3,8 @@
  *
 
   Last edited:
+  october  : change output to cumulate AAF distributions and mix_likelihoods across all tags within a lane
+  6 Sept:--computed depth distribution for bin_width=5x
   24August- small sample correction for artificially inflated last AAF 10% bin (too high skc last)
   // changed thr_lik in the into 0.3 (was 0.25) mixture = Decision(Lik, mix, 0.3);// !!!!
   7 June 2016- added Steven's corrections and outputs
@@ -66,8 +68,9 @@ int main(int argc, char *argv[]) {
     int thr_low, thr_up, ploid;
     int depth_min, depth_max, mode_depth ,sdmo;
 
-    //prams
-    float thr_lik;//how low sh be likelyhood to ignore it; was 0.25, now 0.3
+    //params
+    float thr_lik;//how low sh be likelihood to ignore it; was 0.25, now 0.3
+    int bin_width;
 
     // to read vcfa/vcfq
     static const int line_size = 8192; // maximum line size
@@ -96,11 +99,13 @@ int main(int argc, char *argv[]) {
 
     //---------------------------arrays
     int histAF[101]; // to store mafs percentages
+    int bins_depth[201];
+    int hist_depth[201];//?
+
     int st[4], stc [4]; // starts of summing intervals for histo
     float sk[3], skc[3]; // three skewnesses for mode0,1,2
     int mix[3], mixc[3]; // mixtures three modes and their complements
     float Lik[3]; // likelihood or confidences three modes
-
 
 
     // param values
@@ -145,18 +150,25 @@ int main(int argc, char *argv[]) {
         fprintf(stderr, "cannot open filtered_vcf_file %s: %s\n", extract_vcf_file, strerror(errno));
         exit(EXIT_FAILURE);
     }
-    mixFile = fopen(mix_file,"w");
+    mixFile = fopen(mix_file,"a");// make append
     if (mixFile == NULL) {
         fprintf(stderr, "cannot open mixture_file %s: %s\n", mix_file, strerror(errno));
         exit(EXIT_FAILURE);
     }
-    distribFile = fopen(distrib_file,"w");
+    distribFile = fopen(distrib_file,"a");// to add a line now!
     if (distribFile == NULL) {
         fprintf(stderr, "cannot open distribution_file %s: %s\n", distrib_file, strerror(errno));
         exit(EXIT_FAILURE);
     }
 
     fprintf(stderr, "get_mixture\n");
+
+     // initialise depth histograms
+	    bin_width = 5;
+	    for (i=0;i<201;i++) {
+	        hist_depth[i] = 0;
+	        bins_depth[i] = 1 + i * bin_width;
+    }
 
     // initialise AAF histogram
     for (i=0;i<101;i++) {
@@ -198,6 +210,7 @@ int main(int argc, char *argv[]) {
 
             count_afterF++;
 
+
             // compute AF and update AAF histo
             AF = GetAf(DP4);
             histAF[AF-1]++;
@@ -205,11 +218,21 @@ int main(int argc, char *argv[]) {
             // calc sDP4 and update sumDP4
             sDP4 = DP4[0] + DP4[1] + DP4[2] + DP4[3];
             sumDP4 = sumDP4 + sDP4;
+
+            // update depth histo
+		    for (i=0;i<200;i++) {
+				if ((sDP4 >= bins_depth[i]) && (sDP4 < bins_depth[i+1])) {
+					hist_depth[i]++;
+				    break;
+		    }
+            }
         }
     }
 
     fprintf(stderr, "count of variants before filtering = %d\n", count_beforeF);
     fprintf(stderr, "count of variants after filtering = %d\n", count_afterF);
+
+    //  ==================   analysis of AAF , ideally helped-adjusted by depth_hist
 
     // initialise interval sums
     for (i=0;i<4;i++) {
@@ -261,18 +284,34 @@ int main(int argc, char *argv[]) {
             for (i=0;i<3;i++) {
                 fprintf(stderr, "Mode %d: likelihood of mix = %.2f\n", i, Lik[i]);
             }
+            //output depth histo: not all of them, up to 500 x depth
+            for (i=0;i<100;i++) {
+				fprintf(stderr, "depth= %d\n", hist_depth[i]);
+            }
         }
     }
+
+    //output depth histo: not all of them, up to 500 x depth
+
 
     // write distribution file
     for (i=0;i<101;i++) {
-        if (fprintf(distribFile,"%d %d\n",i, histAF[i]) <= 0) {
-            fprintf(stderr, "error writing distribution_file: %s\n", strerror(errno));
+     //   if (fprintf(distribFile,"%d %d\n",i, histAF[i]) <= 0) {
+		 // csv line
+		    if (fprintf(distribFile,"%d,",histAF[i]) <= 0) {
+                fprintf(stderr, "error writing distribution_file: %s\n", strerror(errno));
             exit(EXIT_FAILURE);
         }
     }
+    //fprintf(distribFile,"%d\n",histAF[100]);
 
-    // write mixture file
+    // write mixture file, now space-separated
+
+    if (fprintf(mixFile,"%.2f, %.2f, %.2f, %.2f, %.2f, %.2f\n", mix[0]*1.0, mix[1]*1.0,mix[2]*1.0,Lik[0],Lik[1],Lik[2]) <= 0 ) {
+	        fprintf(stderr, "error writing mixture_file: %s\n", strerror(errno));
+	        exit(EXIT_FAILURE);
+    }
+    /*
     if (fprintf(mixFile,"mix low freq=%d\nconfidence low freq=%.4f\n", mix[0], Lik[0]) <= 0 ) {
         fprintf(stderr, "error writing mixture_file: %s\n", strerror(errno));
         exit(EXIT_FAILURE);
@@ -289,6 +328,7 @@ int main(int argc, char *argv[]) {
         fprintf(stderr, "error writing mixture_file: %s\n", strerror(errno));
         exit(EXIT_FAILURE);
     }
+    */
 
     // close files
     fclose(thrFile);
@@ -370,6 +410,9 @@ float GetStd(int data[])
     float mu, std, sum, sum2;
     int i;
     int cnz = 0;
+
+    // itialise std
+    std=5.0;//bin_with
 
     sum = data[0];
     sum2 = data[0] * data[0];
@@ -514,8 +557,10 @@ int GetMaxPeakInterval(int data[], int n1, int n2)
         }
     }
 
+
     return mixx;
 }
+
 
 ////////////////////////////////////////////////////
 // confidences modes 0,1,2
@@ -523,23 +568,29 @@ int GetMaxPeakInterval(int data[], int n1, int n2)
 ////////////////////////////////////////////////////
 void Likely(float Lik[], float sk[],float skc[], int mixc[],float avDP4)
 {
+    //changed at 7 Sept to get less weight to the last complementary bin: it is not THAT important there is a peak, lp
     int i;
-    float l, lc, lp;
+    float l, lc;//, lp;
 
     for (i=0;i<3;i++) {
-        lp = 0.0;
-        if (mixc[i]>0) {
-            lp = skc[2-i];
-        }
+        //lp = 0.0;
+        //if (mixc[i]>0) {
+        //    lp = skc[2-i];
+        //}
         l = sk[i];
         lc = skc[2-i];
-        Lik[i] = (1-1/avDP4) * (l+lc+lp) / 3;
+        //Lik[i] = (1-1/avDP4) * (l+lc+lp) / 3;
+        Lik[i] = (1-1/avDP4) * (l+lc) *0.5;
     }
 
     // adjusted for majority of reads in this range 16-26: here is 0.8 (0.2 as much  than for mode0 5-15)
-    Lik[1]=(1-1/avDP4) * 0.8 * (sk[1]+skc[1]+skc[1]) / 3;
+    //Lik[1]=(1-1/avDP4) * 0.8 * (sk[1]+skc[1]+skc[1]) / 3;
+
+    Lik[1]=(1-1/avDP4) * 0.8 * (sk[1]+skc[1]) *0.5;
+
     // adjusted for majority of reads in this range 27-47: here is twice as much
-    Lik[2] = (1-1/avDP4) * (l+lc+lp) / 6;
+    //Lik[2] = (1-1/avDP4) * (l+lc+lp) / 6;
+    Lik[2] = (1-1/avDP4) * 0.6 * (l+lc) *0.5;
 }
 
 ////////////////////////////////////////////////////
@@ -570,6 +621,11 @@ int GetMaxIndex (float data[], int i1, int i2)
 int Decision(float Lik[], int mix[], float thr_lik)
 {
     int nm,mixx;
+
+     // if there is no peak at mode0, then take its middle
+	    if (mix[0]==0) {
+			mix[0]=9;
+	    }
 
     // if each Lik[i] <=thr_lik, mixture=0
     if (Lik[0] <= thr_lik && Lik[1] <= thr_lik && Lik[2] <= thr_lik){
@@ -653,7 +709,7 @@ void skewnesses_ssc (int data[], float sk[], float skc[], int st[], int stc[])
 		}
 	    }
 
-        // if scp[2]< 3 && scp[3]< 3 && skc[2]>0.5   make skc[2]=0.4
+        // SSC:  if scp[2]< 3 && scp[3]< 3 && skc[2]>0.5   make skc[2]=0.4
         if (scp[2] < perc_aaf && scp[3] < perc_aaf && skc[2] > thr_skc ) {
 			skc[2]=0.4;
 		}
